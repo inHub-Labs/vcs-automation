@@ -39,27 +39,50 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      - name: Create artifacts dir
+        run: mkdir -p artifacts
+
       - name: Terraform Plan
-        run: terraform plan -input=false -lock-timeout=15s -out=tfplan
-
-      # - name: Wait for approval
-      #   if: github.ref == 'refs/heads/main'
-      #   uses: trstringer/manual-approval@74d99dff7380e3e4b122d4ededcbca2b6ce59367 # v1.12.0
-      #   timeout-minutes: 20
-      #   with:
-      #     secret: ${{ github.token }}
-      #     approvers: gnersisyann
-      #     minimum-approvals: 1
-      #     exclude-workflow-initiator-as-approver: false
-      #     issue-title: "Terraform apply approval (${{ github.ref_name }})"
-      #     issue-body: |
-      #       Please approve Terraform apply for release **${{ github.ref_name }}**.
-
-      #       Repo: ${{ github.repository }}
-      #       Commit: ${{ github.sha }}
-      #       Actor: ${{ github.actor }}
-      #       Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -o pipefail
+          terraform plan -input=false -lock-timeout=15s -no-color -out=tfplan 2>&1 | tee artifacts/01_plan_initial.txt
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main'
-        run: terraform apply -input=false -lock-timeout=10m tfplan
+        run: |
+          set -o pipefail
+          terraform apply -input=false -lock-timeout=10m -no-color tfplan 2>&1 | tee artifacts/02_apply.txt
+
+      - name: Collect metrics
+        if: github.ref == 'refs/heads/main'
+        run: |
+          {
+            echo "=== Terraform state resources ==="
+            terraform state list 2>/dev/null | tee artifacts/state_list.txt | wc -l | xargs echo "Total resources:"
+            echo ""
+            echo "=== Lines of code ==="
+            find . -name "*.tf" | xargs wc -l | tail -1
+            echo ""
+            echo "=== repositories.yaml lines ==="
+            wc -l repositories.yaml
+            echo ""
+            echo "=== tfvars lines ==="
+            wc -l *.auto.tfvars
+            echo ""
+            echo "=== Repos in repositories.yaml ==="
+            grep "^- name:" repositories.yaml | wc -l | xargs echo "Repos:"
+            echo ""
+            echo "=== Teams ==="
+            grep -c "name\s*=" teams.auto.tfvars | xargs echo "Teams:"
+            echo ""
+            echo "=== Org members ==="
+            grep -c "username" organization_members.auto.tfvars | xargs echo "Members:"
+          } | tee artifacts/03_metrics.txt
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6b892b55dab927eddce0c3d03b0aa # v4.6.2
+        with:
+          name: terraform-artifacts-${{ github.run_number }}
+          path: artifacts/
+          retention-days: 30

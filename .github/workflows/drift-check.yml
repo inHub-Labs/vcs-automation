@@ -1,0 +1,58 @@
+name: Terraform Drift Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for drift check (e.g. manual change in GitHub UI)"
+        required: false
+        default: "Manual drift detection"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  drift-check:
+    name: Terraform Plan (drift detection)
+    runs-on: ubuntu-latest
+    env:
+      TF_VAR_github_organization: ${{ github.repository_owner }}
+      GITHUB_APP_ID: ${{ secrets.TF_GITHUB_APP_ID }}
+      GITHUB_APP_INSTALLATION_ID: ${{ secrets.TF_GITHUB_APP_INSTALLATION_ID }}
+      GITHUB_APP_PEM_FILE: ${{ secrets.TF_GITHUB_APP_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v6.0.2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
+        with:
+          role-to-assume: arn:aws:iam::762233769464:role/github-actions-terraform
+          aws-region: eu-north-1
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Create artifacts dir
+        run: mkdir -p artifacts
+
+      - name: Terraform Plan (drift detection)
+        run: |
+          set -o pipefail
+          echo "Reason: ${{ inputs.reason }}" > artifacts/04_drift_plan.txt
+          echo "Run: ${{ github.run_id }} | Date: $(date -u)" >> artifacts/04_drift_plan.txt
+          echo "---" >> artifacts/04_drift_plan.txt
+          terraform plan -input=false -lock-timeout=15s -no-color 2>&1 | tee -a artifacts/04_drift_plan.txt
+
+      - name: Upload drift artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6b892b55dab927eddce0c3d03b0aa # v4.6.2
+        with:
+          name: drift-plan-${{ github.run_number }}
+          path: artifacts/04_drift_plan.txt
+          retention-days: 30

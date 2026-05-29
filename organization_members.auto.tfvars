@@ -1,10 +1,6 @@
 organization_members = [
   {
-    username = "NarMadat"
-    role     = "member"
-  },
-  {
-    username = "gnersisyann"
+    username = "skaletto-l"
     role     = "member"
   }
 ]
