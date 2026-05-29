@@ -28,7 +28,7 @@ output "members" {
   }
 }
 
-output "organization_role_assignments" {
-  description = "Managed organization role assignments."
-  value       = module.org_roles.assignments
-}
+# output "organization_role_assignments" {
+#   description = "Managed organization role assignments."
+#   value       = module.org_roles.assignments
+# }
