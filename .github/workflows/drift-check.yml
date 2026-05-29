@@ -51,7 +51,7 @@ jobs:
 
       - name: Upload drift artifact
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6b892b55dab927eddce0c3d03b0aa # v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: drift-plan-${{ github.run_number }}
           path: artifacts/04_drift_plan.txt
