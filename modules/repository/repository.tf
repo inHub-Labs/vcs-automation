@@ -1,7 +1,7 @@
 resource "github_repository" "this" {
   name         = var.name
   description  = var.description
-  homepage_url = "https://github.com/InformationSystemsAgency/vcs-automation"
+  homepage_url = "https://github.com/inHub-Labs/vcs-automation"
   visibility   = var.visibility
   topics       = var.topics
   auto_init    = true
