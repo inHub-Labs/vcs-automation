@@ -1,0 +1,145 @@
+name: Terraform PR Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  terraform-pr-validation:
+    name: Terraform PR Validation
+    runs-on: ubuntu-latest
+    env:
+      TF_VAR_github_organization: ${{ github.repository_owner }}
+      GITHUB_APP_ID: ${{ secrets.TF_GITHUB_APP_ID }}
+      GITHUB_APP_INSTALLATION_ID: ${{ secrets.TF_GITHUB_APP_INSTALLATION_ID }}
+      GITHUB_APP_PEM_FILE: ${{ secrets.TF_GITHUB_APP_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v6.0.2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
+        with:
+          role-to-assume: arn:aws:iam::762233769464:role/github-actions-terraform
+          aws-region: eu-north-1
+
+      - name: Terraform Format
+        id: fmt
+        shell: bash
+        run: |
+          set -o pipefail
+          terraform fmt -check -diff -recursive -no-color | tee fmt.txt
+
+      - name: Terraform Init
+        id: init
+        shell: bash
+        run: |
+          set -o pipefail
+          terraform init -input=false -no-color | tee init.txt
+
+      - name: Terraform Validate
+        id: validate
+        shell: bash
+        run: |
+          set -o pipefail
+          terraform validate -no-color | tee validate.txt
+
+      - name: Terraform Plan
+        id: plan
+        shell: bash
+        run: |
+          set -o pipefail
+          terraform plan -input=false -lock-timeout=15s -no-color | tee plan.txt
+
+      - name: Comment Terraform results in PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          FMT_OUTCOME: ${{ steps.fmt.outcome }}
+          INIT_OUTCOME: ${{ steps.init.outcome }}
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- terraform-pr-validation -->';
+
+            function readFile(path) {
+              try {
+                return fs.readFileSync(path, 'utf8').trim();
+              } catch {
+                return '';
+              }
+            }
+
+            const planRaw = readFile('plan.txt');
+            const plan = planRaw.length > 60000 ? `${planRaw.slice(0, 60000)}\n\n...output truncated...` : planRaw;
+            const fmtRaw = readFile('fmt.txt');
+            const fmt = fmtRaw.length > 30000 ? `${fmtRaw.slice(0, 30000)}\n\n...output truncated...` : fmtRaw;
+
+            const body = `${marker}
+            #### Terraform Format: \`${process.env.FMT_OUTCOME}\`
+            #### Terraform Init: \`${process.env.INIT_OUTCOME}\`
+            #### Terraform Validate: \`${process.env.VALIDATE_OUTCOME}\`
+            #### Terraform Plan: \`${process.env.PLAN_OUTCOME}\`
+
+            <details><summary>Show Terraform Plan</summary>
+
+            \`\`\`terraform
+            ${plan || 'No plan output generated.'}
+            \`\`\`
+
+            </details>
+
+            <details><summary>Show Terraform Format Output</summary>
+
+            \`\`\`text
+            ${fmt || 'No format output generated.'}
+            \`\`\`
+
+            </details>
+
+            Commit: ${context.payload.pull_request.head.sha}
+            Actor: @${context.actor}
+            Workflow: \`${context.workflow}\``;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

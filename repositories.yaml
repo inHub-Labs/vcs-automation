@@ -1,0 +1,23 @@
+- name: sample-service-minimal
+  description: Minimal profile that still satisfies mandatory protection baseline
+  topics:
+    - service
+  owners:
+    - NarMadat
+    - gnersisyann
+  branch_strategy: github_flow
+  visibility: private
+  team_access:
+    - team_slug: team-test
+      permission: admin
+- name: vcs-demo
+  description: VSC demo repository
+  topics:
+    - service
+  owners:
+    - NarMadat
+  branch_strategy: gitflow
+  visibility: private
+  team_access:
+    - team_slug: team-test
+      permission: admin

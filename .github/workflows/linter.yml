@@ -1,0 +1,100 @@
+name: Linter
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+  packages: read
+  issues: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  super-linter:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Super-Linter
+        id: lint
+        continue-on-error: true
+        uses: super-linter/super-linter@61abc07d755095a68f4987d1c2c3d1d64408f1f9 # v8.3.0
+        env:
+          DEFAULT_BRANCH: main
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VALIDATE_ALL_CODEBASE: true
+          VALIDATE_TERRAFORM_TFLINT: true
+          VALIDATE_YAML: true
+          VALIDATE_GITHUB_ACTIONS: true
+
+      - name: Comment Super-Linter results in PR
+        if: always()
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const marker = '<!-- linter-results -->';
+            const outcome = process.env.LINT_OUTCOME || 'unknown';
+            const runUrl = process.env.RUN_URL;
+
+            const body = `${marker}
+            ## Lint Results
+
+            Super-Linter: \`${outcome}\`
+
+            [View workflow run](${runUrl})
+
+            Commit: ${context.payload.pull_request.head.sha}
+            Actor: @${context.actor}
+            Workflow: \`${context.workflow}\``;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find((comment) => comment.body && comment.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail workflow if Super-Linter failed
+        if: always()
+        shell: bash
+        env:
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+        run: |
+          if [ "$LINT_OUTCOME" = "failure" ]; then
+            echo "Super-Linter reported errors."
+            exit 1
+          fi
