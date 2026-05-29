@@ -6,7 +6,7 @@
     - NarMadat
     - skaletto-l
   branch_strategy: github_flow
-  visibility: private
+  visibility: public
   team_access:
     - team_slug: team-test
       permission: admin
@@ -17,7 +17,7 @@
   owners:
     - NarMadat
   branch_strategy: gitflow
-  visibility: private
+  visibility: public
   team_access:
     - team_slug: team-test
       permission: admin
